@@ -26,10 +26,10 @@ Docker Remote API
 2. Versions
 ===========
 
-The current version of the API is 1.7
+The current version of the API is 1.8
 
 Calling /images/<name>/insert is the same as calling
-/v1.7/images/<name>/insert
+/v1.8/images/<name>/insert
 
 You can still call an old version of the api using
 /v1.0/images/<name>/insert
@@ -51,17 +51,20 @@ What's new
    **New!** This endpoint now returns build status as json stream. In case
    of a build error, it returns the exit status of the failed command.
 
+   **Removed** When building a github repo, you can't let the server to the
+   git clone for you. Please clone locally and build using context.
+
 .. http:get:: /containers/(id)/json
 
-    **New!** This endpoint now returns the host config for the container.
+   **New!** This endpoint now returns the host config for the container.
 
 .. http:post:: /images/create
 .. http:post:: /images/(name)/insert
 .. http:post:: /images/(name)/push
 
-  **New!** progressDetail object was added in the JSON. It's now possible
-  to get the current value and the total of the progress without having to
-  parse the string.
+   **New!** progressDetail object was added in the JSON. It's now possible
+   to get the current value and the total of the progress without having to
+   parse the string.
 
 v1.7
 ****
