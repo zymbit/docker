@@ -51,8 +51,8 @@ What's new
    **New!** This endpoint now returns build status as json stream. In case
    of a build error, it returns the exit status of the failed command.
 
-   **Removed** When building a github repo, you can't let the server to the
-   git clone for you. Please clone locally and build using context.
+   **Removed** When building a github repo, the Docker server will no longer
+   run the git clone for you. Please clone locally and build using context.
 
 .. http:get:: /containers/(id)/json
 
