@@ -29,6 +29,7 @@ FROM resin/rpi-raspbian:wheezy
 RUN	apt-get update && apt-get install -y \
 	btrfs-tools \
 	build-essential \
+	ca-certificates \
 	curl \
 	e2fslibs-dev \
 	git \
