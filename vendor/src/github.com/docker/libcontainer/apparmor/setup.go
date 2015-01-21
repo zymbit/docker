@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	DefaultProfilePath = "/etc/apparmor.d/docker"
+	DefaultProfilePath = "/var/lib/apparmor/profiles/docker"
 )
 
 func InstallDefaultProfile() error {
@@ -34,7 +34,7 @@ func InstallDefaultProfile() error {
 	cmd := exec.Command("/sbin/apparmor_parser", "-r", "-W", "docker")
 	// to use the parser directly we have to make sure we are in the correct
 	// dir with the profile
-	cmd.Dir = "/etc/apparmor.d"
+	cmd.Dir = "/var/lib/apparmor/profiles"
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
