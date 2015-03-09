@@ -25,10 +25,12 @@ DOCKER_MOUNT := $(if $(BIND_DIR),-v "$(CURDIR)/$(BIND_DIR):/go/src/github.com/do
 
 
 GIT_BRANCH := $(shell git rev-parse --abbrev-ref HEAD 2>/dev/null)
-DOCKER_IMAGE := docker-dev$(if $(GIT_BRANCH),:$(GIT_BRANCH))
+DOCKER_IMAGE := docker$(if $(GIT_BRANCH),:$(GIT_BRANCH))
+DOCKER_IMAGE_CROSS := docker-cross$(if $(GIT_BRANCH),:$(GIT_BRANCH))
 DOCKER_DOCS_IMAGE := docker-docs$(if $(GIT_BRANCH),:$(GIT_BRANCH))
 
 DOCKER_RUN_DOCKER := docker run --rm -it --privileged $(DOCKER_ENVS) $(DOCKER_MOUNT) "$(DOCKER_IMAGE)"
+DOCKER_RUN_DOCKER_CROSS := docker run --rm -it --privileged $(DOCKER_ENVS) $(DOCKER_MOUNT) "$(DOCKER_IMAGE_CROSS)"
 
 DOCKER_RUN_DOCS := docker run --rm -it $(DOCS_MOUNT) -e AWS_S3_BUCKET -e NOCACHE
 
@@ -43,8 +45,8 @@ all: build
 binary: build
 	$(DOCKER_RUN_DOCKER) hack/make.sh binary
 
-cross: build
-	$(DOCKER_RUN_DOCKER) hack/make.sh binary cross
+cross: build-cross
+	$(DOCKER_RUN_DOCKER_CROSS) hack/make.sh binary cross
 
 deb: build
 	$(DOCKER_RUN_DOCKER) hack/make.sh binary build-deb
@@ -72,6 +74,21 @@ shell: build
 
 build: bundles
 	docker build -t "$(DOCKER_IMAGE)" .
+
+build-cross:
+	head -n -2 Dockerfile > .DockerfileCross.swp
+	cat Dockerfile.cross >> .DockerfileCross.swp
+	tail -n 2 Dockerfile >> .DockerfileCross.swp
+	docker build -t "$(DOCKER_IMAGE_CROSS)" -f .DockerfileCross.swp .
+	rm .DockerfileCross.swp
+
+docs-build:
+	cp ./VERSION docs/VERSION
+	echo "$(GIT_BRANCH)" > docs/GIT_BRANCH
+#	echo "$(AWS_S3_BUCKET)" > docs/AWS_S3_BUCKET
+	echo "$(GITCOMMIT)" > docs/GITCOMMIT
+	docker pull docs/base
+	docker build -t "$(DOCKER_DOCS_IMAGE)" docs
 
 bundles:
 	mkdir bundles
