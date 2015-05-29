@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -o errexit
+
 # ENV VARS
 VERSION=$(<VERSION)
 #ACCOUNT=

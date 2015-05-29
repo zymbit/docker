@@ -1,8 +1,10 @@
 #!/bin/bash
 
+set -o errexit
+
 VERSION=$(<VERSION)
 
-head -n 26 Dockerfile > .DockerfileCross.swp
+head -n -2 Dockerfile > .DockerfileCross.swp
 cat Dockerfile.cross >> .DockerfileCross.swp
 tail -n 2 Dockerfile >> .DockerfileCross.swp
 docker build -t "docker-builder:$VERSION" -f .DockerfileCross.swp .
