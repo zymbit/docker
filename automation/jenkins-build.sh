@@ -2,7 +2,11 @@
 
 VERSION=$(<VERSION)
 
-docker build -t docker-builder:$VERSION .
+head -n 26 Dockerfile > .DockerfileCross.swp
+cat Dockerfile.cross >> .DockerfileCross.swp
+tail -n 2 Dockerfile >> .DockerfileCross.swp
+docker build -t "docker-builder:$VERSION" -f .DockerfileCross.swp .
+rm .DockerfileCross.swp
 
 docker run --rm --privileged -v "`pwd`:/go/src/github.com/docker/docker" "docker-builder:$VERSION" hack/make.sh binary cross
 
