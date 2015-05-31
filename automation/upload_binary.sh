@@ -33,6 +33,6 @@ echo "RELEASE_ID=$RELEASE_ID"
 
 # Upload data
 # arm
-curl -H "Authorization:token $ACCESS_TOKEN" -H "Content-Type:application/x-xz" --data "@docker-arm-$VERSION.tar.xz" https://uploads.github.com/repos/$ACCOUNT/$REPO/releases/$RELEASE_ID/assets?name=docker-arm-$VERSION.tar.xz
+curl -H "Authorization: token $ACCESS_TOKEN" -H "Content-Type: application/octet-stream" --data "@docker-arm-$VERSION.tar.xz" https://uploads.github.com/repos/$ACCOUNT/$REPO/releases/$RELEASE_ID/assets?name=docker-arm-$VERSION.tar.xz
 # i386
-curl -H "Authorization:token $ACCESS_TOKEN" -H "Content-Type:application/x-xz" --data "@docker-386-$VERSION.tar.xz" https://uploads.github.com/repos/$ACCOUNT/$REPO/releases/$RELEASE_ID/assets?name=docker-386-$VERSION.tar.xz
+curl -H "Authorization: token $ACCESS_TOKEN" -H "Content-Type: application/octet-stream" --data "@docker-386-$VERSION.tar.xz" https://uploads.github.com/repos/$ACCOUNT/$REPO/releases/$RELEASE_ID/assets?name=docker-386-$VERSION.tar.xz
