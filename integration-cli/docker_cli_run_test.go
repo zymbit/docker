@@ -413,6 +413,7 @@ func TestRunLinkToContainerNetMode(t *testing.T) {
 }
 
 func TestRunModeNetContainerHostname(t *testing.T) {
+	testRequires(t, ExecSupport)
 	defer deleteAllContainers()
 	cmd := exec.Command(dockerBinary, "run", "-i", "-d", "--name", "parent", "busybox", "top")
 	out, _, err := runCommandWithOutput(cmd)
@@ -473,6 +474,39 @@ func TestRunWithVolumesFromExited(t *testing.T) {
 	}
 
 	logDone("run - regression test for #4979 - volumes-from on exited container")
+}
+
+// Volume path is a symlink which also exists on the host, and the host side is a file not a dir
+// But the volume call is just a normal volume, not a bind mount
+func TestRunCreateVolumesInSymlinkDir(t *testing.T) {
+	testRequires(t, SameHostDaemon)
+	testRequires(t, NativeExecDriver)
+	defer deleteAllContainers()
+	name := "test-volume-symlink"
+
+	dir, err := ioutil.TempDir("", name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	f, err := os.OpenFile(filepath.Join(dir, "test"), os.O_CREATE, 0700)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	dockerFile := fmt.Sprintf("FROM busybox\nRUN mkdir -p %s\nRUN ln -s %s /test", dir, dir)
+	if _, err := buildImage(name, dockerFile, false); err != nil {
+		t.Fatal(err)
+	}
+	defer deleteImages(name)
+
+	if out, _, err := dockerCmd(t, "run", "-v", "/test/test", name); err != nil {
+		t.Fatal(err, out)
+	}
+
+	logDone("run - create volume in symlink directory")
 }
 
 // Regression test for #4830
@@ -3203,6 +3237,35 @@ func TestRunNetHost(t *testing.T) {
 	logDone("run - net host mode")
 }
 
+func TestRunNetContainerWhichHost(t *testing.T) {
+	testRequires(t, SameHostDaemon)
+	defer deleteAllContainers()
+
+	hostNet, err := os.Readlink("/proc/1/ns/net")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command(dockerBinary, "run", "-d", "--net=host", "--name=test", "busybox", "top")
+	out, _, err := runCommandWithOutput(cmd)
+	if err != nil {
+		t.Fatal(err, out)
+	}
+
+	cmd = exec.Command(dockerBinary, "run", "--net=container:test", "busybox", "readlink", "/proc/self/ns/net")
+	out, _, err = runCommandWithOutput(cmd)
+	if err != nil {
+		t.Fatal(err, out)
+	}
+
+	out = strings.Trim(out, "\n")
+	if hostNet != out {
+		t.Fatalf("Container should have host network namespace")
+	}
+
+	logDone("run - net container mode, where container in host mode")
+}
+
 func TestRunAllowPortRangeThroughPublish(t *testing.T) {
 	defer deleteAllContainers()
 
@@ -3347,4 +3410,29 @@ func TestRunVolumesFromRestartAfterRemoved(t *testing.T) {
 	}
 
 	logDone("run - can restart a volumes-from container after producer is removed")
+}
+
+func TestRunPidHostWithChildIsKillable(t *testing.T) {
+	defer deleteAllContainers()
+	name := "ibuildthecloud"
+	if out, err := exec.Command(dockerBinary, "run", "-d", "--pid=host", "--name", name, "busybox", "sh", "-c", "sleep 30; echo hi").CombinedOutput(); err != nil {
+		t.Fatal(err, out)
+	}
+	time.Sleep(1 * time.Second)
+	errchan := make(chan error)
+	go func() {
+		if out, err := exec.Command(dockerBinary, "kill", name).CombinedOutput(); err != nil {
+			errchan <- fmt.Errorf("%v:\n%s", err, out)
+		}
+		close(errchan)
+	}()
+	select {
+	case err := <-errchan:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Kill container timed out")
+	}
+	logDone("run - can kill container with pid-host and some childs of pid 1")
 }

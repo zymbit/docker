@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 
@@ -77,10 +78,18 @@ var (
 	bridgeIPv4Network *net.IPNet
 	bridgeIPv6Addr    net.IP
 	globalIPv6Network *net.IPNet
+	portMapper        *portmapper.PortMapper
+	once              sync.Once
 
 	defaultBindingIP  = net.ParseIP("0.0.0.0")
 	currentInterfaces = ifaces{c: make(map[string]*networkInterface)}
 )
+
+func initPortMapper() {
+	once.Do(func() {
+		portMapper = portmapper.New()
+	})
+}
 
 func InitDriver(job *engine.Job) engine.Status {
 	var (
@@ -98,6 +107,14 @@ func InitDriver(job *engine.Job) engine.Status {
 		fixedCIDR      = job.Getenv("FixedCIDR")
 		fixedCIDRv6    = job.Getenv("FixedCIDRv6")
 	)
+
+	// try to modprobe bridge first
+	// see gh#12177
+	if out, err := exec.Command("modprobe", "-va", "bridge", "nf_nat").Output(); err != nil {
+		log.Warnf("Running modprobe bridge nf_nat failed with message: %s, error: %v", out, err)
+	}
+
+	initPortMapper()
 
 	if defaultIP := job.Getenv("DefaultBindingIP"); defaultIP != "" {
 		defaultBindingIP = net.ParseIP(defaultIP)
@@ -234,7 +251,7 @@ func InitDriver(job *engine.Job) engine.Status {
 		if err != nil {
 			return job.Error(err)
 		}
-		portmapper.SetIptablesChain(chain)
+		portMapper.SetIptablesChain(chain)
 	}
 
 	bridgeIPv4Network = networkv4
@@ -347,6 +364,11 @@ func setupIPTables(addr net.Addr, icc, ipmasq bool) error {
 		}
 	}
 	return nil
+}
+
+func RequestPort(ip net.IP, proto string, port int) (int, error) {
+	initPortMapper()
+	return portMapper.Allocator.RequestPort(ip, proto, port)
 }
 
 // configureBridge attempts to create and configure a network bridge interface named `bridgeIface` on the host
@@ -586,7 +608,7 @@ func Release(job *engine.Job) engine.Status {
 	}
 
 	for _, nat := range containerInterface.PortMappings {
-		if err := portmapper.Unmap(nat); err != nil {
+		if err := portMapper.Unmap(nat); err != nil {
 			log.Infof("Unable to unmap port %s: %s", nat, err)
 		}
 	}
@@ -643,7 +665,7 @@ func AllocatePort(job *engine.Job) engine.Status {
 
 	var host net.Addr
 	for i := 0; i < MaxAllocatedPortAttempts; i++ {
-		if host, err = portmapper.Map(container, ip, hostPort); err == nil {
+		if host, err = portMapper.Map(container, ip, hostPort); err == nil {
 			break
 		}
 		// There is no point in immediately retrying to map an explicitly

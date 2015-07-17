@@ -25,7 +25,6 @@ import (
 	"github.com/docker/docker/daemon/graphdriver"
 	_ "github.com/docker/docker/daemon/graphdriver/vfs"
 	_ "github.com/docker/docker/daemon/networkdriver/bridge"
-	"github.com/docker/docker/daemon/networkdriver/portallocator"
 	"github.com/docker/docker/engine"
 	"github.com/docker/docker/graph"
 	"github.com/docker/docker/image"
@@ -288,19 +287,8 @@ func (daemon *Daemon) register(container *Container, updateSuffixarray bool) err
 		if err := container.ToDisk(); err != nil {
 			log.Debugf("saving stopped state to disk %s", err)
 		}
-
-		info := daemon.execDriver.Info(container.ID)
-		if !info.IsRunning() {
-			log.Debugf("Container %s was supposed to be running but is not.", container.ID)
-
-			log.Debugf("Marking as stopped")
-
-			container.SetStopped(&execdriver.ExitStatus{ExitCode: -127})
-			if err := container.ToDisk(); err != nil {
-				return err
-			}
-		}
 	}
+
 	return nil
 }
 
@@ -827,12 +815,6 @@ func NewDaemonFromDirectory(config *Config, eng *engine.Engine) (*Daemon, error)
 	}
 	config.DisableNetwork = config.BridgeIface == disableNetworkBridge
 
-	// register portallocator release on shutdown
-	eng.OnShutdown(func() {
-		if err := portallocator.ReleaseAll(); err != nil {
-			log.Errorf("portallocator.ReleaseAll(): %s", err)
-		}
-	})
 	// Claim the pidfile first, to avoid any and all unexpected race conditions.
 	// Some of the init doesn't need a pidfile lock - but let's not try to be smart.
 	if config.Pidfile != "" {
@@ -1012,7 +994,8 @@ func NewDaemonFromDirectory(config *Config, eng *engine.Engine) (*Daemon, error)
 	}
 
 	sysInfo := sysinfo.New(false)
-	ed, err := execdrivers.NewDriver(config.ExecDriver, config.Root, sysInitPath, sysInfo)
+	const runDir = "/var/run/docker"
+	ed, err := execdrivers.NewDriver(config.ExecDriver, runDir, config.Root, sysInitPath, sysInfo)
 	if err != nil {
 		return nil, err
 	}
