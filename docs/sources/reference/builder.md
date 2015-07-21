@@ -146,6 +146,17 @@ The instructions that handle environment variables in the `Dockerfile` are:
 `ONBUILD` instructions are **NOT** supported for environment replacement, even
 the instructions above.
 
+Environment variable subtitution will use the same value for each variable
+throughout the entire command.  In other words, in this example:
+
+    ENV abc=hello
+    ENV abc=bye def=$abc
+    ENV ghi=$abc
+
+will result in `def` having a value of `hello`, not `bye`.  However, 
+`ghi` will have a value of `bye` because it is not part of the same command
+that set `abc` to `bye`.
+
 ## The `.dockerignore` file
 
 If a file named `.dockerignore` exists in the source repository, then it
@@ -269,8 +280,14 @@ The cache for `RUN` instructions can be invalidated by `ADD` instructions. See
 
 - [Issue 783](https://github.com/docker/docker/issues/783) is about file
   permissions problems that can occur when using the AUFS file system. You
-  might notice it during an attempt to `rm` a file, for example. The issue
-  describes a workaround.
+  might notice it during an attempt to `rm` a file, for example.
+
+  For systems that have recent aufs version (i.e., `dirperm1` mount option can
+  be set), docker will attempt to fix the issue automatically by mounting
+  the layers with `dirperm1` option. More details on `dirperm1` option can be
+  found at [`aufs` man page](http://aufs.sourceforge.net/aufs3/man.html)
+
+  If your system doesnt have support for `dirperm1`, the issue describes a workaround.
 
 ## CMD
 

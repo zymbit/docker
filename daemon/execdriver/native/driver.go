@@ -64,7 +64,6 @@ func NewDriver(root, initPath string) (*driver, error) {
 		root,
 		cgm,
 		libcontainer.InitPath(reexec.Self(), DriverName),
-		libcontainer.TmpfsRoot,
 	)
 	if err != nil {
 		return nil, err
@@ -157,30 +156,66 @@ func (d *driver) Run(c *execdriver.Command, pipes *execdriver.Pipes, startCallba
 		startCallback(&c.ProcessConfig, pid)
 	}
 
-	oomKillNotification, err := cont.NotifyOOM()
-	if err != nil {
-		oomKillNotification = nil
-		log.Warnf("Your kernel does not support OOM notifications: %s", err)
-	}
+	oom := notifyOnOOM(cont)
 	waitF := p.Wait
-	if nss := cont.Config().Namespaces; nss.Contains(configs.NEWPID) {
+	if nss := cont.Config().Namespaces; !nss.Contains(configs.NEWPID) {
 		// we need such hack for tracking processes with inerited fds,
 		// because cmd.Wait() waiting for all streams to be copied
 		waitF = waitInPIDHost(p, cont)
 	}
 	ps, err := waitF()
 	if err != nil {
-		if err, ok := err.(*exec.ExitError); !ok {
+		execErr, ok := err.(*exec.ExitError)
+		if !ok {
 			return execdriver.ExitStatus{ExitCode: -1}, err
-		} else {
-			ps = err.ProcessState
 		}
+		ps = execErr.ProcessState
 	}
 	cont.Destroy()
-
-	_, oomKill := <-oomKillNotification
-
+	_, oomKill := <-oom
 	return execdriver.ExitStatus{ExitCode: utils.ExitStatus(ps.Sys().(syscall.WaitStatus)), OOMKilled: oomKill}, nil
+}
+
+// notifyOnOOM returns a channel that signals if the container received an OOM notification
+// for any process.  If it is unable to subscribe to OOM notifications then a closed
+// channel is returned as it will be non-blocking and return the correct result when read.
+func notifyOnOOM(container libcontainer.Container) <-chan struct{} {
+	oom, err := container.NotifyOOM()
+	if err != nil {
+		log.Warnf("Your kernel does not support OOM notifications: %s", err)
+		c := make(chan struct{})
+		close(c)
+		return c
+	}
+	return oom
+}
+
+func killCgroupProcs(c libcontainer.Container) {
+	var procs []*os.Process
+	if err := c.Pause(); err != nil {
+		log.Warn(err)
+	}
+	pids, err := c.Processes()
+	if err != nil {
+		// don't care about childs if we can't get them, this is mostly because cgroup already deleted
+		log.Warnf("Failed to get processes from container %s: %v", c.ID(), err)
+	}
+	for _, pid := range pids {
+		if p, err := os.FindProcess(pid); err == nil {
+			procs = append(procs, p)
+			if err := p.Kill(); err != nil {
+				log.Warn(err)
+			}
+		}
+	}
+	if err := c.Resume(); err != nil {
+		log.Warn(err)
+	}
+	for _, p := range procs {
+		if _, err := p.Wait(); err != nil {
+			log.Warn(err)
+		}
+	}
 }
 
 func waitInPIDHost(p *libcontainer.Process, c libcontainer.Container) func() (*os.ProcessState, error) {
@@ -193,26 +228,13 @@ func waitInPIDHost(p *libcontainer.Process, c libcontainer.Container) func() (*o
 		process, err := os.FindProcess(pid)
 		s, err := process.Wait()
 		if err != nil {
-			if err, ok := err.(*exec.ExitError); !ok {
+			execErr, ok := err.(*exec.ExitError)
+			if !ok {
 				return s, err
-			} else {
-				s = err.ProcessState
 			}
+			s = execErr.ProcessState
 		}
-		processes, err := c.Processes()
-		if err != nil {
-			return s, err
-		}
-
-		for _, pid := range processes {
-			process, err := os.FindProcess(pid)
-			if err != nil {
-				log.Errorf("Failed to kill process: %d", pid)
-				continue
-			}
-			process.Kill()
-		}
-
+		killCgroupProcs(c)
 		p.Wait()
 		return s, err
 	}
@@ -248,29 +270,25 @@ func (d *driver) Unpause(c *execdriver.Command) error {
 
 func (d *driver) Terminate(c *execdriver.Command) error {
 	defer d.cleanContainer(c.ID)
-	// lets check the start time for the process
-	active := d.activeContainers[c.ID]
-	if active == nil {
-		return fmt.Errorf("active container for %s does not exist", c.ID)
+	container, err := d.factory.Load(c.ID)
+	if err != nil {
+		return err
 	}
-	state, err := active.State()
+	defer container.Destroy()
+	state, err := container.State()
 	if err != nil {
 		return err
 	}
 	pid := state.InitProcessPid
-
 	currentStartTime, err := system.GetProcessStartTime(pid)
 	if err != nil {
 		return err
 	}
-
 	if state.InitProcessStartTime == currentStartTime {
 		err = syscall.Kill(pid, 9)
 		syscall.Wait4(pid, nil, 0, nil)
 	}
-
 	return err
-
 }
 
 func (d *driver) Info(id string) execdriver.Info {

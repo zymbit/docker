@@ -23,6 +23,7 @@ import (
 	"github.com/docker/docker/daemon/execdriver"
 	"github.com/docker/docker/daemon/logger"
 	"github.com/docker/docker/daemon/logger/jsonfilelog"
+	"github.com/docker/docker/daemon/logger/syslog"
 	"github.com/docker/docker/engine"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/links"
@@ -357,6 +358,10 @@ func (container *Container) Start() (err error) {
 
 	if container.Running {
 		return nil
+	}
+
+	if container.removalInProgress || container.Dead {
+		return fmt.Errorf("Container is marked for removal and cannot be started.")
 	}
 
 	// if we encounter an error during start we need to ensure that any other
@@ -1374,8 +1379,15 @@ func (container *Container) startLogging() error {
 		if err != nil {
 			return err
 		}
+		container.LogPath = pth
 
 		dl, err := jsonfilelog.New(pth)
+		if err != nil {
+			return err
+		}
+		l = dl
+	case "syslog":
+		dl, err := syslog.New(container.ID[:12])
 		if err != nil {
 			return err
 		}

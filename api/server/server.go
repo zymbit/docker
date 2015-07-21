@@ -27,7 +27,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/docker/docker/api"
 	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/daemon/networkdriver/portallocator"
+	"github.com/docker/docker/daemon/networkdriver/bridge"
 	"github.com/docker/docker/engine"
 	"github.com/docker/docker/pkg/listenbuffer"
 	"github.com/docker/docker/pkg/parsers"
@@ -38,7 +38,7 @@ import (
 )
 
 var (
-	activationLock chan struct{}
+	activationLock chan struct{} = make(chan struct{})
 )
 
 type HttpServer struct {
@@ -1087,6 +1087,20 @@ func postBuild(eng *engine.Engine, version version.Version, w http.ResponseWrite
 	job.Setenv("cpusetcpus", r.FormValue("cpusetcpus"))
 	job.Setenv("cpushares", r.FormValue("cpushares"))
 
+	// Job cancellation. Note: not all job types support this.
+	if closeNotifier, ok := w.(http.CloseNotifier); ok {
+		finished := make(chan struct{})
+		defer close(finished)
+		go func() {
+			select {
+			case <-finished:
+			case <-closeNotifier.CloseNotify():
+				log.Infof("Client disconnected, cancelling job: %v", job)
+				job.Cancel()
+			}
+		}()
+	}
+
 	if err := job.Run(); err != nil {
 		if !job.Stdout.Used() {
 			return err
@@ -1513,7 +1527,7 @@ func allocateDaemonPort(addr string) error {
 	}
 
 	for _, hostIP := range hostIPs {
-		if _, err := portallocator.RequestPort(hostIP, "tcp", intPort); err != nil {
+		if _, err := bridge.RequestPort(hostIP, "tcp", intPort); err != nil {
 			return fmt.Errorf("failed to allocate daemon listening port %d (err: %v)", intPort, err)
 		}
 	}
@@ -1564,7 +1578,6 @@ func ServeApi(job *engine.Job) engine.Status {
 		protoAddrs = job.Args
 		chErrors   = make(chan error, len(protoAddrs))
 	)
-	activationLock = make(chan struct{})
 
 	for _, protoAddr := range protoAddrs {
 		protoAddrParts := strings.SplitN(protoAddr, "://", 2)
