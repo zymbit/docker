@@ -1,8 +1,6 @@
 #!/bin/bash
 set -e
 
-DEST=$1
-
 # explicit list of os/arch combos that support being a daemon
 declare -A daemonSupporting
 daemonSupporting=(
@@ -28,7 +26,9 @@ fi
 
 for platform in $DOCKER_CROSSPLATFORMS; do
 	(
-		mkdir -p "$DEST/$platform" # bundles/VERSION/cross/GOOS/GOARCH/docker-VERSION
+		export DEST="$DEST/$platform" # bundles/VERSION/cross/GOOS/GOARCH/docker-VERSION
+		mkdir -p "$DEST"
+		ABS_DEST="$(cd "$DEST" && pwd -P)"
 		export GOOS=${platform%/*}
 		export GOARCH=${platform##*/}
 		if [ -z "${daemonSupporting[$platform]}" ]; then
@@ -52,6 +52,6 @@ for platform in $DOCKER_CROSSPLATFORMS; do
 				export LIBRARY_PATH=$LIBRARY_PATH:/usr/lib32/lib
 			fi
 		fi
-		source "$(dirname "$BASH_SOURCE")/binary" "$DEST/$platform"
+		source "${MAKEDIR}/binary"
 	)
 done
